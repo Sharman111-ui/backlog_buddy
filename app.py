@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import os
+from datetime import date, timedelta
+import math
 
 st.set_page_config(page_title="Backlog Buddy", page_icon="🟢")
 
@@ -34,12 +36,14 @@ if data:
     daily_load = data["daily_load"]
     missed_count = data["missed_count"]
     mode = data["mode"]
+    start_date = data.get("start_date", date.today().isoformat())
 else:
     backlog = 0
     original_backlog = 0
     daily_load = 1
     missed_count = 0
     mode = "Normal Recovery"
+    start_date = date.today().isoformat()
 
 # -------- UI --------
 st.title("🟢 Backlog Buddy")
@@ -59,7 +63,8 @@ if backlog == 0:
             "original_backlog": backlog_input,
             "daily_load": daily_input,
             "missed_count": 0,
-            "mode": "Normal Recovery"
+            "mode": "Normal Recovery",
+            "start_date": date.today().isoformat()
         })
         st.session_state.adjustment_message = ""
         st.session_state.success_message = ""
@@ -69,6 +74,19 @@ if backlog == 0:
 else:
 
     st.write("### Recovery Dashboard")
+
+    # ---- Date Calculations ----
+    start = date.fromisoformat(start_date)
+    days_needed = math.ceil(backlog / daily_load)
+    finish = start + timedelta(days=days_needed)
+
+    st.markdown(
+        f"""
+        📅 **Started On:** {start.strftime('%d %b %Y')}  
+        🏁 **Estimated Finish:** {finish.strftime('%d %b %Y')}  
+        ⏳ **Days Remaining:** {days_needed}
+        """
+    )
 
     # Persistent Success Message
     if st.session_state.success_message:
@@ -131,8 +149,7 @@ else:
             missed_count = 0
             st.session_state.adjustment_message = ""
             st.session_state.success_message = (
-                f"You reclaimed {daily_load} lecture(s). "
-                "Momentum maintained."
+                f"You reclaimed {daily_load} lecture(s). Momentum maintained."
             )
 
             save_data({
@@ -140,7 +157,8 @@ else:
                 "original_backlog": original_backlog,
                 "daily_load": daily_load,
                 "missed_count": missed_count,
-                "mode": mode
+                "mode": mode,
+                "start_date": start_date
             })
 
             st.rerun()
@@ -155,24 +173,21 @@ else:
 
             if missed_count == 1:
                 st.session_state.adjustment_message = (
-                    "It happens. We shifted your timeline by 1 day. "
-                    "Nothing is broken."
+                    "It happens. Timeline shifted by 1 day."
                 )
 
             elif missed_count == 2:
                 daily_load = max(1, int(daily_load * 0.75))
                 mode = "Adjusted Recovery"
                 st.session_state.adjustment_message = (
-                    f"Daily load reduced from {old_load} → {daily_load}. "
-                    "Restart gently."
+                    f"Daily load reduced {old_load} → {daily_load}. Restart gently."
                 )
 
             elif missed_count >= 3:
                 daily_load = 1
                 mode = "Minimum Viable Progress"
                 st.session_state.adjustment_message = (
-                    "Daily load set to 1 lecture. "
-                    "Momentum matters more than speed."
+                    "Daily load set to 1 lecture. Momentum > speed."
                 )
 
             save_data({
@@ -180,7 +195,8 @@ else:
                 "original_backlog": original_backlog,
                 "daily_load": daily_load,
                 "missed_count": missed_count,
-                "mode": mode
+                "mode": mode,
+                "start_date": start_date
             })
 
             st.rerun()
