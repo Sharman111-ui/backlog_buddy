@@ -1,186 +1,121 @@
 import streamlit as st
 import json
 import os
-from datetime import date, timedelta
-import math
+from datetime import datetime, timedelta
+import random
 
-st.set_page_config(page_title="Backlog Buddy", page_icon="🟢")
+DATA_FILE = "buddy_data.json"
 
-DATA_FILE = "data.json"
+# ---------------- Utilities ----------------
 
-# -------- Load Data --------
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
     return None
 
-# -------- Save Data --------
 def save_data(data):
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
-# -------- Reset Plan --------
-def reset_plan():
-    if os.path.exists(DATA_FILE):
-        os.remove(DATA_FILE)
-    st.session_state.adjustment_message = ""
-    st.session_state.success_message = ""
-    st.rerun()
+def days_left(exam_date):
+    d = datetime.strptime(exam_date, "%Y-%m-%d")
+    return max((d - datetime.now()).days, 1)
 
-# -------- Initialize Messages --------
-if "adjustment_message" not in st.session_state:
-    st.session_state.adjustment_message = ""
+# ---------------- Core Logic ----------------
 
-if "success_message" not in st.session_state:
-    st.session_state.success_message = ""
+def generate_today_plan(data):
+    backlog = data["backlog"]
+    subjects = data["subjects"]
+    daily_hours = data["daily_hours"]
 
-# -------- Load Existing Data --------
+    max_lectures = min(4, backlog)   # never overload
+    tasks = []
+
+    for i in range(max_lectures):
+        sub = random.choice(subjects)
+        tasks.append(f"{sub} – 1 lecture")
+
+    return tasks
+
+def auto_adjust(data, completed):
+    if completed:
+        data["backlog"] -= len(data["today_tasks"])
+        data["history"].append({"date": str(datetime.now().date()), "done": True})
+    else:
+        data["history"].append({"date": str(datetime.now().date()), "done": False})
+
+    data["last_day"] = str(datetime.now().date())
+    return data
+
+# ---------------- UI ----------------
+
+st.set_page_config(page_title="Backlog Buddy", page_icon="📚")
+
+st.title("📚 Backlog Buddy – Recovery Coach")
+
 data = load_data()
 
-if data:
-    backlog = data["backlog"]
-    original_backlog = data["original_backlog"]
-    daily_load = data["daily_load"]
-    missed_count = data["missed_count"]
-    mode = data["mode"]
-    start_date = data.get("start_date", date.today().isoformat())
-else:
-    backlog = 0
-    original_backlog = 0
-    daily_load = 1
-    missed_count = 0
-    mode = "Normal Recovery"
-    start_date = date.today().isoformat()
+# -------- First Time Setup --------
 
-# -------- UI --------
-st.title("🟢 Backlog Buddy")
-st.subheader("Fall behind. Stay calm. We adjust.")
-st.caption("Enter your backlog and daily capacity — we calculate your recovery timeline instantly.")
+if data is None:
 
-# -------- Setup --------
-if backlog == 0:
+    st.subheader("Create your recovery plan")
 
-    st.write("### Setup Your Recovery Plan")
+    backlog = st.number_input("Total backlog lectures", min_value=1)
+    subjects_raw = st.text_input("Subjects (comma separated)", "Physics,Chemistry,Maths")
+    exam_date = st.date_input("Exam date")
+    daily_hours = st.number_input("Hours you can study daily", min_value=1, max_value=12)
 
-    backlog_input = st.number_input("Total pending lectures:", min_value=1, step=1)
-    daily_input = st.number_input("Planned lectures per day:", min_value=1, step=1)
+    if st.button("Create My Recovery Plan"):
+        subjects = [s.strip() for s in subjects_raw.split(",")]
 
-    if st.button("Generate My Plan"):
-        save_data({
-            "backlog": backlog_input,
-            "original_backlog": backlog_input,
-            "daily_load": daily_input,
-            "missed_count": 0,
-            "mode": "Normal Recovery",
-            "start_date": date.today().isoformat()
-        })
+        data = {
+            "backlog": backlog,
+            "subjects": subjects,
+            "exam_date": str(exam_date),
+            "daily_hours": daily_hours,
+            "history": [],
+            "last_day": "",
+            "today_tasks": []
+        }
 
-        st.session_state.adjustment_message = ""
-        st.session_state.success_message = ""
+        save_data(data)
         st.rerun()
 
-# -------- Dashboard --------
+# -------- Main Recovery Screen --------
+
 else:
 
-    st.write("### Recovery Dashboard")
+    today = str(datetime.now().date())
 
-    if st.button("🔄 Reset Plan"):
-        reset_plan()
+    # If new day, generate fresh plan
+    if data["last_day"] != today:
+        data["today_tasks"] = generate_today_plan(data)
+        save_data(data)
 
-    start = date.fromisoformat(start_date)
-    days_needed = math.ceil(backlog / daily_load)
-    finish = start + timedelta(days=days_needed)
+    st.markdown("### 📅 TODAY'S TASKS")
 
-    st.markdown(
-        f"""
-        📅 **Started On:** {start.strftime('%d %b %Y')}  
-        🏁 **Estimated Finish:** {finish.strftime('%d %b %Y')}  
-        ⏳ **Days Remaining:** {days_needed}
-        """
-    )
+    for t in data["today_tasks"]:
+        st.write("✅", t)
 
-    if st.session_state.success_message:
-        st.success(st.session_state.success_message)
+    st.write("---")
 
-    if st.session_state.adjustment_message:
-        st.info(st.session_state.adjustment_message)
+    if st.button("✅ Done Today"):
+        data = auto_adjust(data, True)
+        save_data(data)
+        st.success("Nice. Plan updated for tomorrow.")
+        st.rerun()
 
-    st.markdown(
-        f"<h2 style='color:green;'>Remaining Backlog: {backlog}</h2>",
-        unsafe_allow_html=True
-    )
+    st.write("Backlog remaining:", data["backlog"])
+    st.write("Days left:", days_left(data["exam_date"]))
 
-    progress = 1 - (backlog / original_backlog)
-    st.progress(progress)
+    # Simple weekly insight
+    if len(data["history"]) >= 3:
+        misses = [h for h in data["history"][-3:] if not h["done"]]
+        if len(misses) >= 2:
+            st.warning("You missed last days. It's okay — tomorrow will be lighter.")
 
-    st.info(f"Today's Target: {daily_load}")
-    st.write(f"Mode: {mode}")
-
-    col1, col2 = st.columns(2)
-
-    # -------- Completed --------
-    with col1:
-        if st.button("✅ I Completed Today"):
-
-            backlog -= daily_load
-            backlog = max(0, backlog)
-            missed_count = 0
-
-            st.session_state.adjustment_message = ""
-            st.session_state.success_message = (
-                f"You reclaimed {daily_load} lecture(s). Momentum maintained."
-            )
-
-            save_data({
-                "backlog": backlog,
-                "original_backlog": original_backlog,
-                "daily_load": daily_load,
-                "missed_count": missed_count,
-                "mode": mode,
-                "start_date": start_date
-            })
-
-            st.rerun()
-
-    # -------- Missed --------
-    with col2:
-        if st.button("😔 I Missed Today"):
-
-            missed_count += 1
-            old_load = daily_load
-            st.session_state.success_message = ""
-
-            if missed_count == 1:
-                st.session_state.adjustment_message = "It happens. Timeline shifted by 1 day."
-
-            elif missed_count == 2:
-                daily_load = max(1, int(daily_load * 0.75))
-                mode = "Adjusted Recovery"
-                st.session_state.adjustment_message = (
-                    f"Daily load reduced {old_load} → {daily_load}. Restart gently."
-                )
-
-            elif missed_count >= 3:
-                daily_load = 1
-                mode = "Minimum Viable Progress"
-                st.session_state.adjustment_message = (
-                    "Daily load set to 1 lecture. Momentum > speed."
-                )
-
-            save_data({
-                "backlog": backlog,
-                "original_backlog": original_backlog,
-                "daily_load": daily_load,
-                "missed_count": missed_count,
-                "mode": mode,
-                "start_date": start_date
-            })
-
-            st.rerun()
-
-    # -------- Completion --------
-    if backlog == 0:
-        st.balloons()
-        st.success("🎉 Backlog Cleared.")
-        st.write("You rebuilt momentum. That’s real progress.")
+    if st.button("Reset (start over)"):
+        os.remove(DATA_FILE)
+        st.rerun()
