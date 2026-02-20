@@ -20,6 +20,14 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
+# -------- Reset Plan --------
+def reset_plan():
+    if os.path.exists(DATA_FILE):
+        os.remove(DATA_FILE)
+    st.session_state.adjustment_message = ""
+    st.session_state.success_message = ""
+    st.rerun()
+
 # -------- Initialize Messages --------
 if "adjustment_message" not in st.session_state:
     st.session_state.adjustment_message = ""
@@ -48,6 +56,7 @@ else:
 # -------- UI --------
 st.title("🟢 Backlog Buddy")
 st.subheader("Fall behind. Stay calm. We adjust.")
+st.caption("Enter your backlog and daily capacity — we calculate your recovery timeline instantly.")
 
 # -------- Setup --------
 if backlog == 0:
@@ -57,7 +66,7 @@ if backlog == 0:
     backlog_input = st.number_input("Total pending lectures:", min_value=1, step=1)
     daily_input = st.number_input("Planned lectures per day:", min_value=1, step=1)
 
-    if st.button("Start Recovery Mode"):
+    if st.button("Generate My Plan"):
         save_data({
             "backlog": backlog_input,
             "original_backlog": backlog_input,
@@ -66,6 +75,7 @@ if backlog == 0:
             "mode": "Normal Recovery",
             "start_date": date.today().isoformat()
         })
+
         st.session_state.adjustment_message = ""
         st.session_state.success_message = ""
         st.rerun()
@@ -75,7 +85,9 @@ else:
 
     st.write("### Recovery Dashboard")
 
-    # ---- Date Calculations ----
+    if st.button("🔄 Reset Plan"):
+        reset_plan()
+
     start = date.fromisoformat(start_date)
     days_needed = math.ceil(backlog / daily_load)
     finish = start + timedelta(days=days_needed)
@@ -88,43 +100,12 @@ else:
         """
     )
 
-    # Persistent Success Message
     if st.session_state.success_message:
-        st.markdown(
-            f"""
-            <div style="
-                padding:15px;
-                border-radius:10px;
-                background-color:#e8f5e9;
-                border:2px solid #66bb6a;
-                color:#000000;
-                font-size:16px;">
-                <strong>Nice Work 💪</strong><br><br>
-                {st.session_state.success_message}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.success(st.session_state.success_message)
 
-    # Persistent Adjustment Message
     if st.session_state.adjustment_message:
-        st.markdown(
-            f"""
-            <div style="
-                padding:15px;
-                border-radius:10px;
-                background-color:#e3f2fd;
-                border:2px solid #42a5f5;
-                color:#000000;
-                font-size:16px;">
-                <strong>We Adjusted Your Plan 💙</strong><br><br>
-                {st.session_state.adjustment_message}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.info(st.session_state.adjustment_message)
 
-    # Highlight backlog
     st.markdown(
         f"<h2 style='color:green;'>Remaining Backlog: {backlog}</h2>",
         unsafe_allow_html=True
@@ -138,15 +119,14 @@ else:
 
     col1, col2 = st.columns(2)
 
-    # -------- Complete --------
+    # -------- Completed --------
     with col1:
         if st.button("✅ I Completed Today"):
 
             backlog -= daily_load
-            if backlog < 0:
-                backlog = 0
-
+            backlog = max(0, backlog)
             missed_count = 0
+
             st.session_state.adjustment_message = ""
             st.session_state.success_message = (
                 f"You reclaimed {daily_load} lecture(s). Momentum maintained."
@@ -172,9 +152,7 @@ else:
             st.session_state.success_message = ""
 
             if missed_count == 1:
-                st.session_state.adjustment_message = (
-                    "It happens. Timeline shifted by 1 day."
-                )
+                st.session_state.adjustment_message = "It happens. Timeline shifted by 1 day."
 
             elif missed_count == 2:
                 daily_load = max(1, int(daily_load * 0.75))
@@ -206,10 +184,3 @@ else:
         st.balloons()
         st.success("🎉 Backlog Cleared.")
         st.write("You rebuilt momentum. That’s real progress.")
-
-        if st.button("Start New Recovery Plan"):
-            if os.path.exists(DATA_FILE):
-                os.remove(DATA_FILE)
-            st.session_state.adjustment_message = ""
-            st.session_state.success_message = ""
-            st.rerun()
